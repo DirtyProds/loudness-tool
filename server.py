@@ -21,6 +21,7 @@ import threading
 import urllib.parse
 import uuid
 import webbrowser
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -202,6 +203,33 @@ def render_gain(in_path: Path, out_path: Path, gain_db: float,
     _run_ffmpeg(cmd, info["duration"], progress_cb)
 
 
+def split_to_mono_zip(in_path: Path, zip_path: Path, stem: str,
+                      channels_list: list, codec: str, sr: str,
+                      duration: float, progress_cb=None) -> None:
+    """Extract each channel of a WAV to a mono file and pack them in a ZIP."""
+    n = len(channels_list)
+    tmp_files = []
+    try:
+        for idx, ch in enumerate(channels_list):
+            mono_path = zip_path.parent / f"{stem}_{ch['label']}.wav"
+            tmp_files.append(mono_path)
+            cmd = [FFMPEG, "-i", str(in_path),
+                   "-filter:a", f"pan=mono|c0=c{ch['index']}",
+                   "-c:a", codec, "-ar", sr,
+                   str(mono_path), "-y"]
+            sub_cb = None
+            if progress_cb:
+                base, step = idx / n, 1.0 / n
+                sub_cb = lambda f, b=base, s=step: progress_cb(b + f * s)
+            _run_ffmpeg(cmd, duration, sub_cb)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+            for p in tmp_files:
+                zf.write(p, p.name)
+    finally:
+        for p in tmp_files:
+            p.unlink(missing_ok=True)
+
+
 # ── Session store ─────────────────────────────────────────────────────────────
 
 TMPDIR = Path(tempfile.mkdtemp(prefix="loudnessnorm_"))
@@ -296,9 +324,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         out = Path(sess["out"])
         dl_name = sess.get("dl_name") or Path(sess["out"]).name
+        dl_type = sess.get("dl_type", "audio/wav")
         data = out.read_bytes()
         self.send_response(200)
-        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Type", dl_type)
         self.send_header("Content-Disposition",
                          f'attachment; filename="{dl_name}"')
         self.send_header("Content-Length", str(len(data)))
@@ -412,9 +441,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "El True Peak debe estar entre -30 y 0."}, 400)
             return
 
-        dl_name = f"{Path(sess['name']).stem}_{_fmt_num(lufs)}lufs_{_fmt_num(tp)}tp.wav"
+        mode = (qs.get("mode") or ["interleaved"])[0]
+        dl_stem = f"{Path(sess['name']).stem}_{_fmt_num(lufs)}lufs_{_fmt_num(tp)}tp"
+        if mode == "multimono":
+            dl_name, dl_type = dl_stem + ".zip", "application/zip"
+        else:
+            dl_name, dl_type = dl_stem + ".wav", "audio/wav"
         out = TMPDIR / dl_name
         sess["dl_name"] = dl_name
+        sess["dl_type"] = dl_type
         sess["status"] = "running"
         sess["progress"] = 0.0
         sess["out"] = None
@@ -428,16 +463,8 @@ class Handler(BaseHTTPRequestHandler):
             # Whole-mix path: loudnorm linear, unchanged proven behaviour.
             render_measured = dict(sess["measured"])
             render_measured["input_tp"] = sess["mix_tp"]
-
-            def work():
-                try:
-                    normalize_audio(sess["path"], out, lufs, tp, render_measured, cb)
-                    sess["out"] = str(out)
-                    sess["progress"] = 100.0
-                    sess["status"] = "done"
-                except Exception as exc:
-                    sess["error"] = str(exc)
-                    sess["status"] = "error"
+            def core(dest, pcb):
+                normalize_audio(sess["path"], dest, lufs, tp, render_measured, pcb)
         else:
             # Channel-referenced path: shift the whole mix so the analysed
             # channel reaches the target, clamped so the mix true peak never
@@ -450,10 +477,35 @@ class Handler(BaseHTTPRequestHandler):
             resp.update({"gain": round(gain, 2),
                          "desired_gain": round(desired_gain, 2),
                          "clamped": clamped})
+            def core(dest, pcb):
+                render_gain(sess["path"], dest, gain, pcb)
 
+        if mode == "multimono":
+            tmp_iv = TMPDIR / (dl_stem + "_tmp.wav")
+            info = sess["info"]
             def work():
                 try:
-                    render_gain(sess["path"], out, gain, cb)
+                    core(tmp_iv, lambda f: cb(f * 0.8))
+                    split_to_mono_zip(
+                        tmp_iv, out, dl_stem,
+                        info["channels_list"],
+                        _wav_codec(info["bits_per_raw_sample"]),
+                        str(info["sample_rate"]),
+                        info["duration"],
+                        lambda f: cb(0.8 + f * 0.2),
+                    )
+                    sess["out"] = str(out)
+                    sess["progress"] = 100.0
+                    sess["status"] = "done"
+                except Exception as exc:
+                    sess["error"] = str(exc)
+                    sess["status"] = "error"
+                finally:
+                    tmp_iv.unlink(missing_ok=True)
+        else:
+            def work():
+                try:
+                    core(out, cb)
                     sess["out"] = str(out)
                     sess["progress"] = 100.0
                     sess["status"] = "done"
