@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoudnessNorm</title>
+<style>
+  :root{
+    --bg:#111113; --surface:#1c1c1e; --card:#2c2c2e; --card2:#3a3a3c;
+    --border:#545456; --accent:#0a84ff; --green:#30d158; --yellow:#ffd60a;
+    --red:#ff453a; --txt:#f2f2f7; --txt2:#ebebf5; --txt3:#aeaeb2; --txt4:#636366;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif;
+    display:flex; justify-content:center; min-height:100vh; padding:0;
+  }
+  .app{width:100%; max-width:760px}
+  /* Header */
+  header{
+    background:var(--surface); display:flex; align-items:baseline; gap:12px;
+    padding:18px 24px; border-bottom:1px solid var(--border);
+  }
+  header h1{font-size:20px; font-weight:700; letter-spacing:.2px}
+  header .sub{font-size:12px; color:var(--txt3)}
+  main{padding:22px 24px 40px}
+  .section-label{
+    font-size:10px; font-weight:700; letter-spacing:.8px; color:var(--txt3);
+    text-transform:uppercase; margin-bottom:8px;
+  }
+  .section-label .hint{
+    text-transform:none; letter-spacing:0; font-weight:400; color:var(--txt4);
+    margin-left:8px; font-size:10px;
+  }
+  hr{border:none; border-top:1px solid var(--border); margin:18px 0}
+
+  /* Dropzone */
+  .dropzone{
+    position:relative; height:160px; border-radius:14px; background:var(--surface);
+    border:2px dashed var(--border); display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:6px; cursor:pointer;
+    transition:.15s; text-align:center; margin-bottom:16px;
+  }
+  .dropzone.hover{border-color:var(--accent); background:#1a2535}
+  .dropzone .icon{font-size:38px; color:var(--txt4); line-height:1}
+  .dropzone.loaded .icon{color:var(--accent)}
+  .dz-title{font-size:16px; font-weight:700; color:var(--txt3)}
+  .dropzone.loaded .dz-title{color:var(--txt)}
+  .dz-sub{font-size:12px; color:var(--txt4)}
+  .dz-browse{font-size:12px; color:var(--accent)}
+  .dropzone.loaded .dz-browse{color:var(--txt4)}
+
+  /* Analysis header row */
+  .row-between{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+  .file-path{font-size:11px; color:var(--txt4); word-break:break-all; margin-bottom:10px}
+  .btn-ghost{
+    background:var(--card2); color:var(--txt2); border:none; border-radius:7px;
+    font-size:12px; padding:7px 14px; cursor:pointer; transition:.15s;
+  }
+  .btn-ghost:hover:not(:disabled){background:var(--border); color:var(--txt)}
+  .btn-ghost:disabled{opacity:.4; cursor:default}
+
+  /* Scope selector */
+  .scope-row{display:flex; align-items:center; gap:12px; margin-bottom:12px}
+  .scope-row label{font-size:11px; color:var(--txt3); white-space:nowrap}
+  .scope-row select{
+    flex:1; background:var(--card); color:var(--txt); border:1px solid var(--border);
+    border-radius:9px; padding:9px 12px; font-size:13px; font-family:inherit;
+    cursor:pointer; outline:none; -webkit-appearance:none; appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23aeaeb2' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 12px center;
+  }
+  .scope-row select:focus{border-color:var(--accent)}
+
+  /* Metric cards */
+  .metrics{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+  .metric{background:var(--card); border-radius:12px; padding:14px 16px}
+  .metric .label{font-size:11px; color:var(--txt3)}
+  .metric .value{font-size:30px; font-weight:700; color:var(--txt4); margin-top:6px}
+
+  /* Presets */
+  .presets{display:flex; flex-wrap:wrap; gap:8px}
+  .preset{
+    background:var(--card2); border-radius:11px; padding:11px 14px; cursor:pointer;
+    border:2px solid transparent; transition:.12s; min-width:96px;
+  }
+  .preset:hover{filter:brightness(1.12)}
+  .preset.active{background:var(--accent)}
+  .preset .pname{font-size:13px; font-weight:700; color:var(--txt2)}
+  .preset.active .pname{color:#fff}
+  .preset .psub{font-size:9.5px; color:var(--txt4); margin-top:2px}
+  .preset.active .psub{color:var(--txt2)}
+
+  /* Custom fields */
+  .fields{display:flex; gap:14px}
+  .field{background:var(--card); border-radius:12px; padding:14px 16px}
+  .field .flabel{font-size:11px; color:var(--txt3)}
+  .field input{
+    width:110px; background:transparent; border:none; outline:none; color:var(--txt);
+    font-size:24px; font-weight:700; margin:4px 0 2px; font-family:inherit;
+  }
+  .field .funit{font-size:11px; color:var(--txt4)}
+
+  /* Status + progress + render */
+  .status{font-size:13px; color:var(--txt3); margin-bottom:8px; min-height:18px}
+  .progress{height:6px; background:var(--card); border-radius:4px; overflow:hidden; margin-bottom:14px}
+  .progress .bar{height:100%; width:0; background:var(--accent); transition:width .2s}
+  .progress.indeterminate .bar{
+    width:35%; animation:slide 1.1s infinite ease-in-out;
+  }
+  @keyframes slide{0%{margin-left:-35%}100%{margin-left:100%}}
+  .btn-render{
+    width:100%; background:var(--green); color:#000; border:none; border-radius:12px;
+    font-size:15px; font-weight:700; padding:16px; cursor:pointer; transition:.15s;
+    letter-spacing:.5px;
+  }
+  .btn-render:hover:not(:disabled){background:#22a844}
+  .btn-render:disabled{background:var(--card2); color:#555; cursor:default}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>LoudnessNorm</h1>
+    <span class="sub">Professional Loudness Normalization</span>
+  </header>
+
+  <main>
+    <!-- Dropzone -->
+    <div class="dropzone" id="dropzone">
+      <div class="icon" id="dzIcon">⬇</div>
+      <div class="dz-title" id="dzTitle">Arrastra un archivo WAV aquí</div>
+      <div class="dz-sub" id="dzSub">Mono · Stereo · 5.1 Surround</div>
+      <div class="dz-browse" id="dzBrowse">o haz clic para buscar →</div>
+    </div>
+    <input type="file" id="fileInput" accept=".wav,.WAV,audio/wav,audio/x-wav">
+
+    <!-- Analysis -->
+    <div class="row-between">
+      <span class="section-label">Análisis</span>
+      <button class="btn-ghost" id="analyzeBtn" disabled>Analizar</button>
+    </div>
+    <div class="file-path" id="filePath">Ningún archivo cargado</div>
+    <div class="scope-row" id="scopeRow" style="display:none">
+      <label for="scopeSelect">Ámbito</label>
+      <select id="scopeSelect"></select>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="label">Integrated LUFS</div><div class="value" id="mLufs">—</div></div>
+      <div class="metric"><div class="label">LU Range</div><div class="value" id="mLra">—</div></div>
+      <div class="metric"><div class="label">True Peak (dBTP)</div><div class="value" id="mTp">—</div></div>
+    </div>
+
+    <hr>
+
+    <!-- Presets -->
+    <div class="section-label">Preset objetivo</div>
+    <div class="presets" id="presets"></div>
+
+    <div class="section-label" style="margin-top:16px">Diálogo (LKFS)
+      <span class="hint">mide el canal de diálogo (normalmente «C») en el ámbito de arriba</span>
+    </div>
+    <div class="presets" id="dialoguePresets"></div>
+
+    <hr>
+
+    <!-- Custom target -->
+    <div class="section-label">Objetivo personalizado</div>
+    <div class="fields">
+      <div class="field">
+        <div class="flabel">Target LUFS</div>
+        <input type="text" id="lufsInput" inputmode="decimal">
+        <div class="funit">LUFS</div>
+      </div>
+      <div class="field">
+        <div class="flabel">True Peak máx.</div>
+        <input type="text" id="tpInput" inputmode="decimal">
+        <div class="funit">dBTP</div>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Actions -->
+    <div class="status" id="status">Carga un archivo WAV para comenzar.</div>
+    <div class="progress" id="progressWrap"><div class="bar" id="progressBar"></div></div>
+    <button class="btn-render" id="renderBtn" disabled>RENDER</button>
+  </main>
+</div>
+
+<script>
+// Presets de programa (mezcla completa).
+const PRESETS = {
+  "Spotify":     [-14.0, -1.0],
+  "Apple Music": [-16.0, -1.0],
+  "Netflix":     [-27.0, -2.0],
+  "EBU R128":    [-23.0, -1.0],
+  "CALM Act":    [-24.0, -2.0],
+};
+// Presets de diálogo (LKFS) — estándares de loudness de diálogo.
+const DIALOGUE_PRESETS = {
+  "Netflix":   [-27.0, -2.0],
+  "ATSC A/85": [-24.0, -2.0],
+  "EBU R128":  [-23.0, -1.0],
+  "AMC TV":    [-24.0, -2.0],
+  "Podcast":   [-16.0, -1.0],
+};
+const CH_MAP = {1:"Mono", 2:"Stereo", 6:"5.1 Surround"};
+
+const $ = id => document.getElementById(id);
+const dz = $("dropzone"), fileInput = $("fileInput");
+let state = { id:null, info:null, busy:false, activePreset:null, polling:null,
+              scope:"mix", lastRender:null };
+
+// ── Presets UI ────────────────────────────────────────────────────────────
+function buildPresets(container, presets, group, unit){
+  for (const [name,[lufs,tp]] of Object.entries(presets)){
+    const el = document.createElement("div");
+    el.className = "preset";
+    el.dataset.key = group + ":" + name;
+    el.innerHTML = `<div class="pname">${name}</div><div class="psub">${lufs} ${unit} / ${tp} dBTP</div>`;
+    el.onclick = () => selectPreset(el.dataset.key, lufs, tp);
+    container.appendChild(el);
+  }
+}
+buildPresets($("presets"), PRESETS, "prog", "LUFS");
+buildPresets($("dialoguePresets"), DIALOGUE_PRESETS, "dlg", "LKFS");
+
+function selectPreset(key, lufs, tp){
+  state.activePreset = key;
+  $("lufsInput").value = lufs;
+  $("tpInput").value = tp;
+  refreshPresets();
+}
+function refreshPresets(){
+  document.querySelectorAll(".preset").forEach(el =>
+    el.classList.toggle("active", el.dataset.key === state.activePreset));
+}
+$("lufsInput").addEventListener("focus", deselectPresets);
+$("tpInput").addEventListener("focus", deselectPresets);
+function deselectPresets(){ state.activePreset = null; refreshPresets(); }
+selectPreset("prog:EBU R128", -23.0, -1.0);
+
+// ── Status / progress helpers ─────────────────────────────────────────────
+function setStatus(text, color){ const s=$("status"); s.textContent=text; s.style.color=color||"var(--txt3)"; }
+function setProgress(pct){ $("progressBar").style.width = (pct||0)+"%"; }
+function indeterminate(on){ $("progressWrap").classList.toggle("indeterminate", on); if(on) setProgress(0); }
+function lufsColor(v){ return v>-6?"var(--red)":v>-9?"var(--yellow)":"var(--txt)"; }
+function tpColor(v){ return v>-0.3?"var(--red)":v>-1.0?"var(--yellow)":"var(--txt)"; }
+
+// ── File selection ────────────────────────────────────────────────────────
+dz.onclick = () => fileInput.click();
+fileInput.onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); };
+dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("hover"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("hover"));
+dz.addEventListener("drop", e => {
+  e.preventDefault(); dz.classList.remove("hover");
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+let currentFile = null;
+function loadFile(file){
+  if (state.busy) return;
+  if (!file.name.toLowerCase().endsWith(".wav")){
+    setStatus("Solo se admiten archivos WAV.", "var(--red)");
+    return;
+  }
+  currentFile = file;
+  state.id = null; state.info = null; state.scope = "mix";
+  ["mLufs","mLra","mTp"].forEach(k => { $(k).textContent="—"; $(k).style.color="var(--txt4)"; });
+  $("scopeRow").style.display = "none";
+  $("renderBtn").disabled = true;
+  setProgress(0);
+
+  dz.classList.add("loaded");
+  $("dzIcon").textContent = "♪";
+  $("dzTitle").textContent = file.name;
+  $("dzSub").textContent = (file.size/1048576).toFixed(1) + " MB";
+  $("dzBrowse").textContent = "cambiar archivo";
+  $("filePath").textContent = file.name;
+  $("analyzeBtn").disabled = false;
+  analyze();
+}
+
+// ── Analyze ───────────────────────────────────────────────────────────────
+$("analyzeBtn").onclick = analyze;
+async function analyze(){
+  if (!currentFile || state.busy) return;
+  state.busy = true;
+  $("analyzeBtn").disabled = true; $("analyzeBtn").textContent = "Analizando…";
+  $("renderBtn").disabled = true;
+  setStatus("Subiendo y analizando loudness…");
+  indeterminate(true);
+  try{
+    const res = await fetch("/api/analyze", {
+      method:"POST",
+      headers:{ "X-Filename": encodeURIComponent(currentFile.name) },
+      body: currentFile,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error de análisis");
+    onAnalyzed(data);
+  }catch(err){
+    indeterminate(false); setProgress(0);
+    $("analyzeBtn").disabled = false; $("analyzeBtn").textContent = "Analizar";
+    if (err instanceof TypeError){
+      // "Failed to fetch" — la conexión no llegó al servidor
+      setStatus("No se pudo conectar con el servidor. ¿Sigue corriendo «./run.sh» en la terminal? Reinícialo y recarga esta página.", "var(--red)");
+    }else{
+      setStatus("Error en el análisis: " + err.message, "var(--red)");
+    }
+  }finally{
+    state.busy = false;
+  }
+}
+function showMeasured(measured){
+  const lufs = parseFloat(measured.input_i);
+  const lra  = parseFloat(measured.input_lra);
+  const tp   = parseFloat(measured.input_tp);
+  $("mLufs").textContent = lufs.toFixed(1); $("mLufs").style.color = lufsColor(lufs);
+  $("mLra").textContent  = lra.toFixed(1);  $("mLra").style.color  = "var(--txt)";
+  $("mTp").textContent   = tp.toFixed(1);   $("mTp").style.color   = tpColor(tp);
+}
+
+function populateScope(info){
+  const sel = $("scopeSelect");
+  const channels = (info && info.channels_list) || [];
+  sel.innerHTML = "";
+  const optMix = document.createElement("option");
+  optMix.value = "mix";
+  optMix.textContent = "Mezcla completa (todos los canales)";
+  sel.appendChild(optMix);
+  channels.forEach(c => {
+    const o = document.createElement("option");
+    o.value = String(c.index);
+    o.textContent = `Canal ${c.index + 1} · ${c.label}`;
+    sel.appendChild(o);
+  });
+  sel.value = state.scope;
+  $("scopeRow").style.display = channels.length > 1 ? "flex" : "none";
+}
+
+function scopeLabel(){
+  const sel = $("scopeSelect");
+  return sel.selectedOptions.length ? sel.selectedOptions[0].textContent : "la mezcla";
+}
+
+function onAnalyzed(data){
+  state.id = data.id; state.info = data.info; state.scope = "mix";
+  indeterminate(false); setProgress(100);
+  $("analyzeBtn").disabled = false; $("analyzeBtn").textContent = "Re-analizar";
+
+  populateScope(data.info);
+  showMeasured(data.measured);
+
+  const i = data.info;
+  const ch = CH_MAP[i.channels] || (i.channels + "ch");
+  const meta = `${ch} · ${i.sample_rate} Hz · ${i.bits_per_raw_sample}-bit`;
+  $("dzSub").textContent = meta;
+  $("filePath").textContent = `${data.name}   (${meta})`;
+  $("renderBtn").disabled = false;
+  setStatus("Análisis completo. Listo para renderizar.", "var(--green)");
+}
+
+// ── Cambio de ámbito (canal) — re-mide sin volver a subir el archivo ────────
+$("scopeSelect").addEventListener("change", reanalyzeScope);
+async function reanalyzeScope(){
+  if (!state.id || state.busy) return;
+  state.scope = $("scopeSelect").value;
+  state.busy = true;
+  $("renderBtn").disabled = true;
+  indeterminate(true);
+  setStatus("Midiendo " + scopeLabel() + "…");
+  try{
+    const res = await fetch("/api/reanalyze?id=" + state.id + "&channel=" + state.scope,
+                            { method:"POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error de medición");
+    showMeasured(data.measured);
+    indeterminate(false); setProgress(100);
+    $("renderBtn").disabled = false;
+    setStatus("Medido: " + scopeLabel() + ". Listo para renderizar.", "var(--green)");
+  }catch(err){
+    indeterminate(false); setProgress(0);
+    setStatus("Error al medir: " + err.message, "var(--red)");
+  }finally{
+    state.busy = false;
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+$("renderBtn").onclick = render;
+async function render(){
+  if (!state.id || state.busy) return;
+  const lufs = parseFloat($("lufsInput").value);
+  const tp   = parseFloat($("tpInput").value);
+  if (isNaN(lufs) || isNaN(tp)){ setStatus("Introduce números válidos para LUFS y True Peak.", "var(--red)"); return; }
+  if (lufs < -70 || lufs > 0){ setStatus("El objetivo LUFS debe estar entre -70 y 0.", "var(--red)"); return; }
+  if (tp < -30 || tp > 0){ setStatus("El True Peak debe estar entre -30 y 0.", "var(--red)"); return; }
+
+  state.busy = true;
+  $("renderBtn").disabled = true; $("renderBtn").textContent = "RENDERIZANDO…";
+  $("analyzeBtn").disabled = true;
+  indeterminate(false); setProgress(0);
+  setStatus("Renderizando…");
+
+  const q = new URLSearchParams({ id:state.id, lufs, tp });
+  const res = await fetch("/api/render?" + q, { method:"POST" });
+  const data = await res.json();
+  if (!res.ok){
+    finishRender(); setStatus("Error: " + (data.error||"render falló"), "var(--red)"); return;
+  }
+  state.lastRender = data;
+  pollProgress();
+}
+function renderDoneMessage(){
+  const r = state.lastRender;
+  if (r && r.gain !== undefined){
+    const g = (r.gain >= 0 ? "+" : "") + r.gain;
+    if (r.clamped){
+      const d = (r.desired_gain >= 0 ? "+" : "") + r.desired_gain;
+      return [`Render completo · ganancia ${g} dB (limitada por True Peak; pedías ${d} dB). Descargando…`, "var(--yellow)"];
+    }
+    return [`Render completo · ganancia ${g} dB aplicada a la mezcla. Descargando…`, "var(--green)"];
+  }
+  return ["Render completo. Descargando…", "var(--green)"];
+}
+function pollProgress(){
+  clearInterval(state.polling);
+  state.polling = setInterval(async () => {
+    try{
+      const res = await fetch("/api/progress?id=" + state.id);
+      const p = await res.json();
+      setProgress(p.progress);
+      if (p.status === "done"){
+        clearInterval(state.polling);
+        finishRender();
+        setProgress(100);
+        const [msg, col] = renderDoneMessage();
+        setStatus(msg, col);
+        window.location = "/api/download?id=" + state.id;
+      }else if (p.status === "error"){
+        clearInterval(state.polling);
+        finishRender(); setProgress(0);
+        setStatus("Error en el render: " + (p.error||""), "var(--red)");
+      }
+    }catch(e){ /* keep polling */ }
+  }, 300);
+}
+function finishRender(){
+  state.busy = false;
+  $("renderBtn").disabled = false; $("renderBtn").textContent = "RENDER";
+  $("analyzeBtn").disabled = false;
+}
+</script>
+</body>
+</html>
