@@ -168,37 +168,81 @@ def _run_ffmpeg(cmd: list, dur: float, progress_cb=None) -> None:
         raise RuntimeError(f"ffmpeg finalizó con código {proc.returncode}")
 
 
+
 def normalize_audio(in_path: Path, out_path: Path,
                     target_lufs: float, target_tp: float,
-                    measured: dict, progress_cb=None) -> None:
-    """Whole-mix normalization via loudnorm's two-pass linear mode."""
+                    progress_cb=None) -> None:
+    """Two-pass render: pass 1 uses loudnorm only for measurement; pass 2
+    applies a plain linear gain (volume filter) plus an alimiter safety net.
+    Loudnorm is not used in pass 2 — it forces dynamic mode when the audio LRA
+    exceeds the target LRA, introducing an unpredictable target_offset gain."""
     info = get_audio_info(in_path)
     codec = _wav_codec(info["bits_per_raw_sample"])
-    sr = str(info["sample_rate"])  # loudnorm upsamples to 192k; restore source rate
+    sr = str(info["sample_rate"])
 
+    # Pass 1 — loudnorm in measurement-only mode to obtain input_i and input_tp.
+    cmd1 = [FFMPEG, "-i", str(in_path),
+            "-filter:a",
+            f"loudnorm=I={target_lufs}:TP={target_tp}:LRA=50:linear=true:print_format=json",
+            "-f", "null", "-"]
+    r = subprocess.run(cmd1, capture_output=True, text=True)
+    m = re.search(r'\{\s*"input_i".*?\}', r.stderr, re.DOTALL)
+    if not m:
+        raise RuntimeError(
+            "loudnorm (pasada 1) no produjo mediciones. "
+            "Verifica que el archivo sea un WAV válido.\n\n" + r.stderr[-1500:]
+        )
+    measured = json.loads(m.group())
+    input_i = float(measured["input_i"])
+
+    print(f"\n── normalize_audio pass 1 ──────────────────────────────")
+    print(f"  target_lufs={target_lufs}  target_tp={target_tp}")
+    print(f"  comando: {' '.join(cmd1)}")
+    print(f"  pass 1 JSON completo:")
+    for k, v in measured.items():
+        print(f"    {k}: {v}")
+
+    if progress_cb:
+        progress_cb(0.4)
+
+    # Pass 2 — plain volume gain derived from the measured input_i.
+    # No loudnorm: gain is deterministic and not affected by LRA constraints.
+    gain = target_lufs - input_i
+    limiter_linear = 10 ** ((target_tp - 0.3) / 20.0)
     flt = (
-        f"loudnorm=I={target_lufs}:TP={target_tp}:LRA=11"
-        f":measured_I={measured['input_i']}"
-        f":measured_TP={measured['input_tp']}"
-        f":measured_LRA={measured['input_lra']}"
-        f":measured_thresh={measured['input_thresh']}"
-        f":linear=true:print_format=summary"
+        f"volume={gain:.4f}dB"
+        f",alimiter=level_in=1:level_out=1:limit={limiter_linear:.6f}:attack=5:release=50:level=disabled"
     )
-    cmd = [FFMPEG, "-i", str(in_path),
-           "-filter:a", flt, "-c:a", codec, "-ar", sr,
-           str(out_path), "-y"]
-    _run_ffmpeg(cmd, info["duration"], progress_cb)
+    cmd2 = [FFMPEG, "-i", str(in_path),
+            "-filter:a", flt, "-c:a", codec, "-ar", sr,
+            str(out_path), "-y"]
+
+    print(f"── normalize_audio pass 2 ──────────────────────────────")
+    print(f"  input_i={input_i}  target_lufs={target_lufs}")
+    print(f"  gain={gain:.4f} dB")
+    print(f"  limiter_linear={limiter_linear:.6f}  ({target_tp - 0.3} dBTP)")
+    print(f"  filtro completo: {flt}")
+    print(f"  comando: {' '.join(cmd2)}")
+    print(f"────────────────────────────────────────────────────────\n")
+
+    pass2_cb = (lambda f: progress_cb(0.4 + f * 0.6)) if progress_cb else None
+    _run_ffmpeg(cmd2, info["duration"], pass2_cb)
 
 
 def render_gain(in_path: Path, out_path: Path, gain_db: float,
-                progress_cb=None) -> None:
+                target_tp: float, progress_cb=None) -> None:
     """Apply a fixed gain to every channel of the full mix (used when the
     target references a single channel's loudness)."""
     info = get_audio_info(in_path)
     codec = _wav_codec(info["bits_per_raw_sample"])
     sr = str(info["sample_rate"])
+    limiter_linear = 10 ** ((target_tp - 0.3) / 20.0)
+    flt = (
+        f"volume={gain_db:.4f}dB"
+        f",alimiter=level_in=1:level_out=1:limit={limiter_linear:.6f}:attack=5:release=50:level=disabled"
+    )
     cmd = [FFMPEG, "-i", str(in_path),
-           "-filter:a", f"volume={gain_db:.4f}dB", "-c:a", codec, "-ar", sr,
+           "-filter:a", flt, "-c:a", codec, "-ar", sr,
            str(out_path), "-y"]
     _run_ffmpeg(cmd, info["duration"], progress_cb)
 
@@ -460,25 +504,27 @@ class Handler(BaseHTTPRequestHandler):
         resp = {"ok": True, "channel": channel}
 
         if channel is None:
-            # Whole-mix path: loudnorm linear, unchanged proven behaviour.
-            render_measured = dict(sess["measured"])
-            render_measured["input_tp"] = sess["mix_tp"]
+            # Whole-mix path: two-pass loudnorm keeps the gate consistent and
+            # lets loudnorm's own linear gain handle the LUFS target; the
+            # alimiter safety net reduces the True Peak without dragging LUFS.
             def core(dest, pcb):
-                normalize_audio(sess["path"], dest, lufs, tp, render_measured, pcb)
+                normalize_audio(sess["path"], dest, lufs, tp, pcb)
         else:
-            # Channel-referenced path: shift the whole mix so the analysed
-            # channel reaches the target, clamped so the mix true peak never
-            # exceeds the ceiling (a boost can't push the mix into clipping).
-            measured_i = float(sess["measured"]["input_i"])
+            # Channel-referenced path: explicit gain so the mix TP ceiling is
+            # never exceeded (loudnorm two-pass can't see the mix peak when
+            # targeting a single channel's loudness).
+            measured_i   = float(sess["measured"]["input_i"])
             desired_gain = lufs - measured_i
-            headroom = tp - sess["mix_tp"]          # max gain before mix peak = ceiling
-            gain = min(desired_gain, headroom)
-            clamped = gain < desired_gain - 1e-6
-            resp.update({"gain": round(gain, 2),
-                         "desired_gain": round(desired_gain, 2),
-                         "clamped": clamped})
+            headroom     = tp - sess["mix_tp"]
+            gain         = min(desired_gain, headroom)
+            clamped      = gain < desired_gain - 1e-6
+            resp.update({
+                "gain":         round(gain, 2),
+                "desired_gain": round(desired_gain, 2),
+                "clamped":      clamped,
+            })
             def core(dest, pcb):
-                render_gain(sess["path"], dest, gain, pcb)
+                render_gain(sess["path"], dest, gain, tp, pcb)
 
         if mode == "multimono":
             tmp_iv = TMPDIR / (dl_stem + "_tmp.wav")
