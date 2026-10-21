@@ -1,8 +1,7 @@
 {
   "name": "loudness-tool",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Local web app for loudness normalization of WAV files (LUFS / True Peak) powered by ffmpeg",
   "scripts": {
     "test": "npx playwright test"
   },
@@ -11,8 +10,8 @@
     "url": "git+https://github.com/DirtyProds/loudness-tool.git"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Daniel Candel",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/DirtyProds/loudness-tool/issues"

@@ -2,6 +2,8 @@
 
 A local web application for professional loudness normalization of WAV audio files. Upload a file, pick a delivery standard preset (or set custom targets), choose an export mode, and download a normalized WAV — all powered by ffmpeg, running entirely on your machine with no cloud uploads and no Python packages beyond the standard library.
 
+> **Note:** The user interface is currently in Spanish.
+
 ---
 
 ## Features
