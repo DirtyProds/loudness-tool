@@ -28,6 +28,7 @@ from pathlib import Path
 HOST = "127.0.0.1"
 PORT = 8765
 HERE = Path(__file__).resolve().parent
+DEBUG = bool(os.environ.get("DEBUG"))
 
 
 def _fmt_num(v: float) -> str:
@@ -195,12 +196,13 @@ def normalize_audio(in_path: Path, out_path: Path,
     measured = json.loads(m.group())
     input_i = float(measured["input_i"])
 
-    print(f"\n── normalize_audio pass 1 ──────────────────────────────")
-    print(f"  target_lufs={target_lufs}  target_tp={target_tp}")
-    print(f"  comando: {' '.join(cmd1)}")
-    print(f"  pass 1 JSON completo:")
-    for k, v in measured.items():
-        print(f"    {k}: {v}")
+    if DEBUG:
+        print(f"\n── normalize_audio pass 1 ──────────────────────────────")
+        print(f"  target_lufs={target_lufs}  target_tp={target_tp}")
+        print(f"  comando: {' '.join(cmd1)}")
+        print(f"  pass 1 JSON completo:")
+        for k, v in measured.items():
+            print(f"    {k}: {v}")
 
     if progress_cb:
         progress_cb(0.4)
@@ -217,13 +219,14 @@ def normalize_audio(in_path: Path, out_path: Path,
             "-filter:a", flt, "-c:a", codec, "-ar", sr,
             str(out_path), "-y"]
 
-    print(f"── normalize_audio pass 2 ──────────────────────────────")
-    print(f"  input_i={input_i}  target_lufs={target_lufs}")
-    print(f"  gain={gain:.4f} dB")
-    print(f"  limiter_linear={limiter_linear:.6f}  ({target_tp - 0.3} dBTP)")
-    print(f"  filtro completo: {flt}")
-    print(f"  comando: {' '.join(cmd2)}")
-    print(f"────────────────────────────────────────────────────────\n")
+    if DEBUG:
+        print(f"── normalize_audio pass 2 ──────────────────────────────")
+        print(f"  input_i={input_i}  target_lufs={target_lufs}")
+        print(f"  gain={gain:.4f} dB")
+        print(f"  limiter_linear={limiter_linear:.6f}  ({target_tp - 0.3} dBTP)")
+        print(f"  filtro completo: {flt}")
+        print(f"  comando: {' '.join(cmd2)}")
+        print(f"────────────────────────────────────────────────────────\n")
 
     pass2_cb = (lambda f: progress_cb(0.4 + f * 0.6)) if progress_cb else None
     _run_ffmpeg(cmd2, info["duration"], pass2_cb)
@@ -286,11 +289,12 @@ def compress_5_1(in_path: Path, out_path: Path, ratio: float,
     cmd = [FFMPEG, "-i", str(in_path), "-filter_complex", graph,
            "-map", "[out]", "-c:a", codec, "-ar", sr, str(out_path), "-y"]
 
-    print(f"\n── compress_5_1 ────────────────────────────────────────")
-    print(f"  ratio={ratio}  threshold={threshold_db} dBFS ({thr_lin:.6f})")
-    print(f"  attack={attack}ms  release={release}ms  knee={knee} ({knee_v})")
-    print(f"  filtergraph: {graph}")
-    print(f"────────────────────────────────────────────────────────\n")
+    if DEBUG:
+        print(f"\n── compress_5_1 ────────────────────────────────────────")
+        print(f"  ratio={ratio}  threshold={threshold_db} dBFS ({thr_lin:.6f})")
+        print(f"  attack={attack}ms  release={release}ms  knee={knee} ({knee_v})")
+        print(f"  filtergraph: {graph}")
+        print(f"────────────────────────────────────────────────────────\n")
 
     _run_ffmpeg(cmd, info["duration"], progress_cb)
 
