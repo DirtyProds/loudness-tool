@@ -1,0 +1,21 @@
+# Node / Playwright
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Audio test files and render output
+*.wav
+*.zip
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

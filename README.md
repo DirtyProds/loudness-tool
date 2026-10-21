@@ -1,8 +1,6 @@
 # LoudnessNorm
 
-A local web application for professional loudness normalization of WAV audio files. Upload a file, pick a delivery standard preset (or set custom targets), choose an export mode, and download a normalized WAV — all powered by ffmpeg with no cloud uploads or external dependencies.
-
-![Interface: drag-and-drop zone, loudness meters, platform presets, render button]
+A local web application for professional loudness normalization of WAV audio files. Upload a file, pick a delivery standard preset (or set custom targets), choose an export mode, and download a normalized WAV — all powered by ffmpeg, running entirely on your machine with no cloud uploads and no Python packages beyond the standard library.
 
 ---
 
@@ -51,10 +49,11 @@ cd loudness-tool
 
 No Python packages to install. The backend uses only stdlib modules (`http.server`, `subprocess`, `threading`, `zipfile`, etc.).
 
-To run the Playwright tests, install Node dependencies:
+To run the Playwright tests, install the Node dependencies and the Chromium browser used by Playwright:
 
 ```bash
 npm install
+npx playwright install chromium
 ```
 
 ---
@@ -73,7 +72,7 @@ Or directly:
 python3 server.py
 ```
 
-The server starts at `http://127.0.0.1:8765` and opens the UI in your default browser automatically. Keep the terminal window open while using the app.
+The server starts at `http://127.0.0.1:8765` and opens the UI in your default browser automatically. If port 8765 is busy, it tries the next free port (8766–8774) and prints the URL it ends up using. Keep the terminal window open while using the app.
 
 ### Workflow
 
@@ -180,7 +179,15 @@ python3 server.py
 npm test
 ```
 
+The tests expect the app at `http://localhost:8765`, so make sure nothing else is using that port before starting the server.
+
 Eight tests cover page load, all five program presets, the export mode selector, and the initial render button state.
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Daniel Candel
 
 ---
 
