@@ -129,6 +129,40 @@
   .btn-render:hover:not(:disabled){background:#22a844}
   .btn-render:disabled{background:var(--card2); color:#555; cursor:default}
   input[type=file]{display:none}
+
+  /* Tabs */
+  .tabbar{display:flex; gap:4px; margin-bottom:22px; border-bottom:1px solid var(--border)}
+  .tab{
+    background:none; border:none; color:var(--txt3); font-size:14px; font-weight:700;
+    font-family:inherit; padding:11px 16px; cursor:pointer; border-bottom:2px solid transparent;
+    margin-bottom:-1px; transition:.15s;
+  }
+  .tab:hover{color:var(--txt2)}
+  .tab.active{color:var(--accent); border-bottom-color:var(--accent)}
+  .tab-panel{display:none}
+  .tab-panel.active{display:block}
+
+  /* Compressor grid (Dynamic Control) */
+  .comp-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+  .comp-field{background:var(--card); border-radius:12px; padding:12px 14px}
+  .comp-field .flabel{font-size:11px; color:var(--txt3)}
+  .comp-field input, .comp-field select{
+    width:100%; background:transparent; border:none; outline:none; color:var(--txt);
+    font-size:20px; font-weight:700; margin:5px 0 2px; font-family:inherit;
+    -webkit-appearance:none; appearance:none;
+  }
+  .comp-field select{cursor:pointer}
+  .comp-field .funit{font-size:10px; color:var(--txt4)}
+
+  /* Result cards + LRA badge */
+  .lra-badge{
+    display:inline-block; font-size:11px; font-weight:700; padding:3px 9px;
+    border-radius:6px; margin-left:8px; vertical-align:middle;
+  }
+  .lra-badge.ok{background:rgba(48,209,88,.18); color:var(--green)}
+  .lra-badge.over{background:rgba(255,69,58,.18); color:var(--red)}
+  .metric .value.sm{font-size:26px}
+  .metric .delta{font-size:10px; color:var(--txt4); margin-top:3px; min-height:12px}
 </style>
 </head>
 <body>
@@ -139,6 +173,13 @@
   </header>
 
   <main>
+    <div class="tabbar">
+      <button class="tab active" data-tab="norm" id="tabNorm">Normalize</button>
+      <button class="tab" data-tab="dynamic" id="tabDynamic">Dynamic Control</button>
+    </div>
+
+    <!-- ══ Panel: Normalize ══════════════════════════════════════════════ -->
+    <div class="tab-panel active" id="panel-norm">
     <!-- Dropzone -->
     <div class="dropzone" id="dropzone">
       <div class="icon" id="dzIcon">⬇</div>
@@ -204,6 +245,133 @@
       </select>
       <button class="btn-render" id="renderBtn" disabled>RENDER</button>
     </div>
+    </div><!-- /panel-norm -->
+
+    <!-- ══ Panel: Dynamic Control ════════════════════════════════════════ -->
+    <div class="tab-panel" id="panel-dynamic">
+      <!-- Dropzone -->
+      <div class="dropzone" id="dcDropzone">
+        <div class="icon" id="dcIcon">⬇</div>
+        <div class="dz-title" id="dcTitle">Arrastra un archivo WAV 5.1 aquí</div>
+        <div class="dz-sub" id="dcSub">6 canales · L · R · C · LFE · Ls · Rs</div>
+        <div class="dz-browse" id="dcBrowse">o haz clic para buscar →</div>
+      </div>
+      <input type="file" id="dcFileInput" accept=".wav,.WAV,audio/wav,audio/x-wav">
+
+      <!-- Analysis -->
+      <div class="row-between">
+        <span class="section-label">Análisis 5.1</span>
+        <button class="btn-ghost" id="dcAnalyzeBtn" disabled>Analizar</button>
+      </div>
+      <div class="file-path" id="dcFilePath">Ningún archivo cargado</div>
+      <div class="metrics">
+        <div class="metric"><div class="label">Integrated LKFS</div><div class="value sm" id="dcMLufs">—</div></div>
+        <div class="metric"><div class="label">True Peak (dBTP)</div><div class="value sm" id="dcMTp">—</div></div>
+        <div class="metric">
+          <div class="label">LRA <span class="lra-badge" id="dcLraBadge" style="display:none"></span></div>
+          <div class="value sm" id="dcMLra">—</div>
+        </div>
+      </div>
+
+      <hr>
+
+      <!-- Targets -->
+      <div class="section-label">Preset de entrega broadcast</div>
+      <div class="presets" id="dcPresets"></div>
+
+      <div class="fields" style="margin-top:14px">
+        <div class="field">
+          <div class="flabel">Target LKFS</div>
+          <input type="text" id="dcLufsInput" inputmode="decimal">
+          <div class="funit">LKFS</div>
+        </div>
+        <div class="field">
+          <div class="flabel">True Peak máx.</div>
+          <input type="text" id="dcTpInput" inputmode="decimal">
+          <div class="funit">dBTP</div>
+        </div>
+        <div class="field">
+          <div class="flabel">LRA máx.</div>
+          <input type="text" id="dcLraInput" inputmode="decimal">
+          <div class="funit">LU</div>
+        </div>
+      </div>
+
+      <hr>
+
+      <!-- Compressor -->
+      <div class="section-label">Compresor
+        <span class="hint">valores calculados automáticamente · editables</span>
+      </div>
+      <div class="comp-grid">
+        <div class="comp-field">
+          <div class="flabel">Ratio</div>
+          <input type="text" id="dcRatio" inputmode="decimal" value="2">
+          <div class="funit">: 1</div>
+        </div>
+        <div class="comp-field">
+          <div class="flabel">Threshold</div>
+          <input type="text" id="dcThreshold" inputmode="decimal" value="-18">
+          <div class="funit">dBFS</div>
+        </div>
+        <div class="comp-field">
+          <div class="flabel">Knee</div>
+          <select id="dcKnee">
+            <option value="soft">Soft</option>
+            <option value="hard">Hard</option>
+          </select>
+          <div class="funit">curva</div>
+        </div>
+        <div class="comp-field">
+          <div class="flabel">Attack</div>
+          <input type="text" id="dcAttack" inputmode="decimal" value="20">
+          <div class="funit">ms</div>
+        </div>
+        <div class="comp-field">
+          <div class="flabel">Release</div>
+          <input type="text" id="dcRelease" inputmode="decimal" value="250">
+          <div class="funit">ms</div>
+        </div>
+        <div class="comp-field" style="display:flex; flex-direction:column; justify-content:center">
+          <div class="flabel">LFE</div>
+          <div style="font-size:14px; font-weight:700; margin:5px 0 2px; color:var(--txt3)">Sin comprimir</div>
+          <div class="funit">ITU-R BS.1770</div>
+        </div>
+      </div>
+
+      <hr>
+
+      <!-- Result (after render) -->
+      <div id="dcResultWrap" style="display:none">
+        <div class="section-label">Resultado <span class="hint">valores medidos tras el render</span></div>
+        <div class="metrics">
+          <div class="metric">
+            <div class="label">Integrated LKFS</div>
+            <div class="value sm" id="dcRLufs">—</div>
+            <div class="delta" id="dcRLufsD"></div>
+          </div>
+          <div class="metric">
+            <div class="label">True Peak (dBTP)</div>
+            <div class="value sm" id="dcRTp">—</div>
+            <div class="delta" id="dcRTpD"></div>
+          </div>
+          <div class="metric">
+            <div class="label">LRA <span class="lra-badge" id="dcRLraBadge" style="display:none"></span></div>
+            <div class="value sm" id="dcRLra">—</div>
+            <div class="delta" id="dcRLraD"></div>
+          </div>
+        </div>
+        <hr>
+      </div>
+
+      <!-- Actions -->
+      <div class="status" id="dcStatus">Carga un archivo WAV 5.1 para comenzar.</div>
+      <div class="progress" id="dcProgressWrap"><div class="bar" id="dcProgressBar"></div></div>
+      <div class="render-row">
+        <button class="btn-render" id="dcRenderBtn" disabled>RENDER BROADCAST</button>
+        <button class="btn-ghost" id="dcDownloadBtn" style="display:none; padding:0 22px">Descargar</button>
+      </div>
+    </div><!-- /panel-dynamic -->
   </main>
 </div>
 
@@ -473,6 +641,289 @@ function finishRender(){
   $("renderBtn").disabled = false; $("renderBtn").textContent = "RENDER";
   $("analyzeBtn").disabled = false;
 }
+
+// ══ Tabs ════════════════════════════════════════════════════════════════════
+document.querySelectorAll(".tab").forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    $("panel-" + t.dataset.tab).classList.add("active");
+  };
+});
+
+// ══ Dynamic Control (broadcast 5.1) ═════════════════════════════════════════
+const DC_PRESETS = {
+  // name: [lkfs, tp, lra]
+  "ITU-R BS.1770-3 Broadcast": [-24.0, -2.0, 12.0],
+  "EBU R128":                  [-23.0, -1.0, 18.0],
+};
+
+const dcState = { id:null, info:null, busy:false, activePreset:null,
+                  polling:null, measured:null };
+let dcFile = null;
+
+// -- Presets --
+function dcBuildPresets(){
+  const c = $("dcPresets");
+  for (const [name, [lkfs, tp, lra]] of Object.entries(DC_PRESETS)){
+    const el = document.createElement("div");
+    el.className = "preset";
+    el.dataset.key = name;
+    el.innerHTML = `<div class="pname">${name}</div>` +
+      `<div class="psub">${lkfs} LKFS / ${tp} dBTP / LRA ≤ ${lra}</div>`;
+    el.onclick = () => dcSelectPreset(name, lkfs, tp, lra);
+    c.appendChild(el);
+  }
+}
+dcBuildPresets();
+
+function dcSelectPreset(key, lkfs, tp, lra){
+  dcState.activePreset = key;
+  $("dcLufsInput").value = lkfs;
+  $("dcTpInput").value = tp;
+  $("dcLraInput").value = lra;
+  document.querySelectorAll("#dcPresets .preset").forEach(el =>
+    el.classList.toggle("active", el.dataset.key === key));
+  dcRecalcThreshold();
+  dcUpdateLraBadge();
+}
+["dcLufsInput","dcTpInput","dcLraInput"].forEach(id =>
+  $(id).addEventListener("focus", () => {
+    dcState.activePreset = null;
+    document.querySelectorAll("#dcPresets .preset").forEach(el => el.classList.remove("active"));
+  }));
+$("dcLraInput").addEventListener("input", () => { dcRecalcThreshold(); dcUpdateLraBadge(); });
+$("dcLufsInput").addEventListener("input", dcRecalcThreshold);
+
+// -- Threshold auto-calc: measured LRA vs target LRA --
+function dcRecalcThreshold(){
+  if (!dcState.measured) return;
+  const inputI = parseFloat(dcState.measured.input_i);
+  const lraM   = parseFloat(dcState.measured.input_lra);
+  const lraT   = parseFloat($("dcLraInput").value);
+  if (isNaN(inputI) || isNaN(lraM) || isNaN(lraT)) return;
+  const excess = Math.max(0, lraM - lraT);
+  let thr;
+  if (excess <= 0.05){
+    thr = -1.0;                       // range already within target → light touch
+  }else{
+    thr = inputI - excess;            // drop threshold by the amount over target
+    thr = Math.max(-40, Math.min(-6, thr));
+  }
+  $("dcThreshold").value = thr.toFixed(1);
+}
+
+// -- LRA badge (green within target / red over) --
+function dcSetBadge(el, lra, target){
+  if (isNaN(lra) || isNaN(target)){ el.style.display = "none"; return; }
+  el.style.display = "inline-block";
+  const over = lra > target + 0.05;
+  el.classList.toggle("ok", !over);
+  el.classList.toggle("over", over);
+  el.textContent = over ? `▲ >${target} LU` : `✓ ≤${target} LU`;
+}
+function dcUpdateLraBadge(){
+  if (!dcState.measured) return;
+  dcSetBadge($("dcLraBadge"),
+             parseFloat(dcState.measured.input_lra),
+             parseFloat($("dcLraInput").value));
+}
+
+// -- Status / progress helpers --
+function dcStatus(t, c){ const s=$("dcStatus"); s.textContent=t; s.style.color=c||"var(--txt3)"; }
+function dcProgress(p){ $("dcProgressBar").style.width=(p||0)+"%"; }
+function dcIndeterminate(on){ $("dcProgressWrap").classList.toggle("indeterminate", on); if(on) dcProgress(0); }
+
+// -- File selection --
+const dcDz = $("dcDropzone"), dcInput = $("dcFileInput");
+dcDz.onclick = () => dcInput.click();
+dcInput.onchange = e => { if (e.target.files[0]) dcLoad(e.target.files[0]); };
+dcDz.addEventListener("dragover", e => { e.preventDefault(); dcDz.classList.add("hover"); });
+dcDz.addEventListener("dragleave", () => dcDz.classList.remove("hover"));
+dcDz.addEventListener("drop", e => {
+  e.preventDefault(); dcDz.classList.remove("hover");
+  if (e.dataTransfer.files[0]) dcLoad(e.dataTransfer.files[0]);
+});
+
+function dcLoad(file){
+  if (dcState.busy) return;
+  if (!file.name.toLowerCase().endsWith(".wav")){
+    dcStatus("Solo se admiten archivos WAV.", "var(--red)"); return;
+  }
+  dcFile = file;
+  dcState.id = null; dcState.info = null; dcState.measured = null;
+  ["dcMLufs","dcMTp","dcMLra"].forEach(k => { $(k).textContent="—"; $(k).style.color="var(--txt4)"; });
+  $("dcLraBadge").style.display = "none";
+  $("dcResultWrap").style.display = "none";
+  $("dcDownloadBtn").style.display = "none";
+  $("dcRenderBtn").disabled = true;
+  dcProgress(0);
+
+  dcDz.classList.add("loaded");
+  $("dcIcon").textContent = "♪";
+  $("dcTitle").textContent = file.name;
+  $("dcSub").textContent = (file.size/1048576).toFixed(1) + " MB";
+  $("dcBrowse").textContent = "cambiar archivo";
+  $("dcFilePath").textContent = file.name;
+  $("dcAnalyzeBtn").disabled = false;
+  dcAnalyze();
+}
+
+// -- Analyze --
+$("dcAnalyzeBtn").onclick = dcAnalyze;
+async function dcAnalyze(){
+  if (!dcFile || dcState.busy) return;
+  dcState.busy = true;
+  $("dcAnalyzeBtn").disabled = true; $("dcAnalyzeBtn").textContent = "Analizando…";
+  $("dcRenderBtn").disabled = true;
+  dcStatus("Subiendo y analizando loudness 5.1…");
+  dcIndeterminate(true);
+  try{
+    const res = await fetch("/api/analyze", {
+      method:"POST",
+      headers:{ "X-Filename": encodeURIComponent(dcFile.name) },
+      body: dcFile,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error de análisis");
+    dcOnAnalyzed(data);
+  }catch(err){
+    dcIndeterminate(false); dcProgress(0);
+    $("dcAnalyzeBtn").disabled = false; $("dcAnalyzeBtn").textContent = "Analizar";
+    if (err instanceof TypeError){
+      dcStatus("No se pudo conectar con el servidor. ¿Sigue corriendo «./run.sh»? Reinícialo y recarga.", "var(--red)");
+    }else{
+      dcStatus("Error en el análisis: " + err.message, "var(--red)");
+    }
+  }finally{ dcState.busy = false; }
+}
+
+function dcOnAnalyzed(data){
+  dcState.id = data.id; dcState.info = data.info; dcState.measured = data.measured;
+  dcIndeterminate(false); dcProgress(100);
+  $("dcAnalyzeBtn").disabled = false; $("dcAnalyzeBtn").textContent = "Re-analizar";
+
+  const m = data.measured;
+  const lkfs = parseFloat(m.input_i), tp = parseFloat(m.input_tp), lra = parseFloat(m.input_lra);
+  $("dcMLufs").textContent = lkfs.toFixed(1); $("dcMLufs").style.color = "var(--txt)";
+  $("dcMTp").textContent   = tp.toFixed(1);   $("dcMTp").style.color   = tpColor(tp);
+  $("dcMLra").textContent  = lra.toFixed(1);  $("dcMLra").style.color  = "var(--txt)";
+
+  const i = data.info;
+  const meta = `${CH_MAP[i.channels] || (i.channels + "ch")} · ${i.sample_rate} Hz · ${i.bits_per_raw_sample}-bit`;
+  $("dcSub").textContent = meta;
+  $("dcFilePath").textContent = `${data.name}   (${meta})`;
+
+  dcRecalcThreshold();
+  dcUpdateLraBadge();
+
+  if (i.channels !== 6){
+    $("dcRenderBtn").disabled = true;
+    dcStatus(`Este archivo tiene ${i.channels} canal(es). Dynamic Control requiere un WAV 5.1 (6 canales).`, "var(--red)");
+    return;
+  }
+  $("dcRenderBtn").disabled = false;
+  dcStatus("Análisis completo. Ajusta targets y compresor, luego renderiza.", "var(--green)");
+}
+
+// -- Render --
+$("dcRenderBtn").onclick = dcRender;
+async function dcRender(){
+  if (!dcState.id || dcState.busy) return;
+  const p = {
+    lkfs:      parseFloat($("dcLufsInput").value),
+    tp:        parseFloat($("dcTpInput").value),
+    lra:       parseFloat($("dcLraInput").value),
+    ratio:     parseFloat($("dcRatio").value),
+    threshold: parseFloat($("dcThreshold").value),
+    attack:    parseFloat($("dcAttack").value),
+    release:   parseFloat($("dcRelease").value),
+  };
+  for (const [k,v] of Object.entries(p)){
+    if (isNaN(v)){ dcStatus("Revisa los valores: «"+k+"» no es un número válido.", "var(--red)"); return; }
+  }
+  const ranges = {
+    lkfs:[-70,0], tp:[-30,0], lra:[1,30], ratio:[1,20],
+    threshold:[-60,0], attack:[1,200], release:[50,2000],
+  };
+  for (const [k,[lo,hi]] of Object.entries(ranges)){
+    if (p[k] < lo || p[k] > hi){ dcStatus(`«${k}» debe estar entre ${lo} y ${hi}.`, "var(--red)"); return; }
+  }
+
+  dcState.busy = true;
+  $("dcRenderBtn").disabled = true; $("dcRenderBtn").textContent = "RENDERIZANDO…";
+  $("dcAnalyzeBtn").disabled = true;
+  $("dcDownloadBtn").style.display = "none";
+  $("dcResultWrap").style.display = "none";
+  dcIndeterminate(false); dcProgress(0);
+  dcStatus("Comprimiendo → normalizando LKFS → limitando True Peak…");
+
+  const q = new URLSearchParams(Object.assign({ id:dcState.id, knee:$("dcKnee").value }, p));
+  try{
+    const res = await fetch("/api/render_dynamic?" + q, { method:"POST" });
+    const data = await res.json();
+    if (!res.ok){ dcFinish(); dcStatus("Error: " + (data.error||"render falló"), "var(--red)"); return; }
+    dcPoll();
+  }catch(err){
+    dcFinish(); dcStatus("Error de conexión: " + err.message, "var(--red)");
+  }
+}
+
+function dcShowResult(r){
+  $("dcResultWrap").style.display = "block";
+  const setCard = (vid, did, val, tgt, unit) => {
+    $(vid).textContent = val.toFixed(1);
+    const d = (val - tgt);
+    $(did).textContent = `objetivo ${tgt} ${unit} · Δ ${(d>=0?"+":"")}${d.toFixed(1)}`;
+  };
+  setCard("dcRLufs","dcRLufsD", r.after.lkfs, r.target.lkfs, "LKFS");
+  $("dcRLufs").style.color = "var(--txt)";
+  setCard("dcRTp","dcRTpD", r.after.tp, r.target.tp, "dBTP");
+  $("dcRTp").style.color = tpColor(r.after.tp);
+  $("dcRLra").textContent = r.after.lra.toFixed(1);
+  $("dcRLraD").textContent = `antes ${r.before.lra} LU · objetivo ≤ ${r.target.lra}`;
+  const over = r.after.lra > r.target.lra + 0.05;
+  $("dcRLra").style.color = over ? "var(--red)" : "var(--green)";
+  dcSetBadge($("dcRLraBadge"), r.after.lra, r.target.lra);
+}
+
+function dcPoll(){
+  clearInterval(dcState.polling);
+  dcState.polling = setInterval(async () => {
+    try{
+      const res = await fetch("/api/progress?id=" + dcState.id);
+      const p = await res.json();
+      dcProgress(p.progress);
+      if (p.status === "done"){
+        clearInterval(dcState.polling);
+        dcFinish(); dcProgress(100);
+        if (p.result) dcShowResult(p.result);
+        const over = p.result && p.result.after.lra > p.result.target.lra + 0.05;
+        dcStatus(over
+          ? "Render completo. El LRA supera el objetivo — considera subir el ratio o bajar el threshold."
+          : "Render completo. LRA dentro del objetivo. Revisa los valores y descarga.",
+          over ? "var(--yellow)" : "var(--green)");
+        $("dcDownloadBtn").style.display = "inline-block";
+      }else if (p.status === "error"){
+        clearInterval(dcState.polling);
+        dcFinish(); dcProgress(0);
+        dcStatus("Error en el render: " + (p.error||""), "var(--red)");
+      }
+    }catch(e){ /* keep polling */ }
+  }, 300);
+}
+
+$("dcDownloadBtn").onclick = () => { window.location = "/api/download?id=" + dcState.id; };
+
+function dcFinish(){
+  dcState.busy = false;
+  $("dcRenderBtn").disabled = false; $("dcRenderBtn").textContent = "RENDER BROADCAST";
+  $("dcAnalyzeBtn").disabled = false;
+}
+
+// Default preset selection.
+dcSelectPreset("ITU-R BS.1770-3 Broadcast", -24.0, -2.0, 12.0);
 </script>
 </body>
 </html>

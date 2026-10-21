@@ -247,6 +247,54 @@ def render_gain(in_path: Path, out_path: Path, gain_db: float,
     _run_ffmpeg(cmd, info["duration"], progress_cb)
 
 
+def _knee_value(knee: str) -> float:
+    """acompressor knee is a linear curve width (1 = hard, larger = softer)."""
+    return 1.0 if knee == "hard" else 2.82843
+
+
+def compress_5_1(in_path: Path, out_path: Path, ratio: float,
+                 threshold_db: float, attack: float, release: float,
+                 knee: str, progress_cb=None) -> None:
+    """Apply dynamic-range compression to the five main channels of a 5.1 file
+    (L, R, C, Ls, Rs) while leaving the LFE (channel index 3) untouched, as the
+    LFE is excluded from loudness control per ITU-R BS.1770.
+
+    The stream is fanned out with asplit, each wanted channel is isolated to
+    mono, compressed, and the six mono channels are joined back into a 5.1
+    layout in the canonical L R C LFE Ls Rs order. No make-up gain is applied —
+    the subsequent two-pass loudnorm restores the integrated loudness target."""
+    info = get_audio_info(in_path)
+    codec = _wav_codec(info["bits_per_raw_sample"])
+    sr = str(info["sample_rate"])
+
+    thr_lin = 10 ** (threshold_db / 20.0)
+    thr_lin = min(max(thr_lin, 0.000976563), 1.0)
+    knee_v = _knee_value(knee)
+    acomp = (f"acompressor=threshold={thr_lin:.6f}:ratio={ratio:g}"
+             f":attack={attack:g}:release={release:g}:knee={knee_v:g}"
+             f":makeup=1:detection=rms")
+
+    parts = ["[0:a]asplit=6[s0][s1][s2][s3][s4][s5]"]
+    for i in range(6):
+        if i == 3:  # LFE — bypass compression (excluded from loudness control)
+            parts.append(f"[s{i}]pan=mono|c0=c{i}[c{i}]")
+        else:
+            parts.append(f"[s{i}]pan=mono|c0=c{i},{acomp}[c{i}]")
+    parts.append("[c0][c1][c2][c3][c4][c5]join=inputs=6:channel_layout=5.1[out]")
+    graph = ";".join(parts)
+
+    cmd = [FFMPEG, "-i", str(in_path), "-filter_complex", graph,
+           "-map", "[out]", "-c:a", codec, "-ar", sr, str(out_path), "-y"]
+
+    print(f"\n── compress_5_1 ────────────────────────────────────────")
+    print(f"  ratio={ratio}  threshold={threshold_db} dBFS ({thr_lin:.6f})")
+    print(f"  attack={attack}ms  release={release}ms  knee={knee} ({knee_v})")
+    print(f"  filtergraph: {graph}")
+    print(f"────────────────────────────────────────────────────────\n")
+
+    _run_ffmpeg(cmd, info["duration"], progress_cb)
+
+
 def split_to_mono_zip(in_path: Path, zip_path: Path, stem: str,
                       channels_list: list, codec: str, sr: str,
                       duration: float, progress_cb=None) -> None:
@@ -358,6 +406,7 @@ class Handler(BaseHTTPRequestHandler):
             "progress": round(sess["progress"], 1),
             "error":    sess["error"],
             "ready":    sess["out"] is not None,
+            "result":   sess.get("result"),
         })
 
     def _handle_download(self, qs):
@@ -391,6 +440,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_reanalyze(qs)
             elif path == "/api/render":
                 self._handle_render(qs)
+            elif path == "/api/render_dynamic":
+                self._handle_render_dynamic(qs)
             else:
                 self.send_error(404)
         except (BrokenPipeError, ConnectionResetError):
@@ -558,6 +609,106 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as exc:
                     sess["error"] = str(exc)
                     sess["status"] = "error"
+
+        threading.Thread(target=work, daemon=True).start()
+        self._json(resp)
+
+    def _handle_render_dynamic(self, qs):
+        """Broadcast dynamic-control render for 5.1 files: per-channel dynamic
+        compression (L/R/C/Ls/Rs, LFE bypassed) → two-pass loudnorm to the LKFS
+        target → alimiter for True Peak. Measures the output before download."""
+        fid = (qs.get("id") or [""])[0]
+        sess = SESSIONS.get(fid)
+        if not sess:
+            self._json({"error": "sesión no encontrada"}, 404)
+            return
+
+        info = sess["info"]
+        if int(info.get("channels", 0)) != 6:
+            self._json({"error": "Dynamic Control requiere un archivo de 6 canales (5.1)."}, 400)
+            return
+
+        def _f(key):
+            return float((qs.get(key) or [""])[0])
+
+        try:
+            lkfs      = _f("lkfs")
+            tp        = _f("tp")
+            lra       = _f("lra")
+            ratio     = _f("ratio")
+            threshold = _f("threshold")
+            attack    = _f("attack")
+            release   = _f("release")
+        except ValueError:
+            self._json({"error": "Parámetros numéricos inválidos."}, 400)
+            return
+        knee = (qs.get("knee") or ["soft"])[0]
+        knee = "hard" if knee == "hard" else "soft"
+
+        checks = [
+            (-70 <= lkfs <= 0,       "El objetivo LKFS debe estar entre -70 y 0."),
+            (-30 <= tp <= 0,         "El True Peak debe estar entre -30 y 0."),
+            (1 <= lra <= 30,         "El LRA objetivo debe estar entre 1 y 30 LU."),
+            (1 <= ratio <= 20,       "El ratio debe estar entre 1 y 20."),
+            (-60 <= threshold <= 0,  "El threshold debe estar entre -60 y 0 dBFS."),
+            (1 <= attack <= 200,     "El attack debe estar entre 1 y 200 ms."),
+            (50 <= release <= 2000,  "El release debe estar entre 50 y 2000 ms."),
+        ]
+        for ok, msg in checks:
+            if not ok:
+                self._json({"error": msg}, 400)
+                return
+
+        stem = Path(sess["name"]).stem
+        dl_name = f"{stem}_broadcast.wav"
+        out = TMPDIR / dl_name
+        tmp_comp = TMPDIR / f"{fid}_compressed.wav"
+
+        sess["dl_name"] = dl_name
+        sess["dl_type"] = "audio/wav"
+        sess["status"] = "running"
+        sess["progress"] = 0.0
+        sess["out"] = None
+        sess["error"] = None
+        sess["result"] = None
+        cb = lambda f: sess.__setitem__("progress", f * 100)
+
+        pre = sess["measured"]
+        resp = {"ok": True, "target": {"lkfs": lkfs, "tp": tp, "lra": lra}}
+
+        def work():
+            try:
+                # Stage 1 — per-channel dynamic compression (LFE bypassed).
+                compress_5_1(sess["path"], tmp_comp, ratio, threshold,
+                             attack, release, knee,
+                             lambda f: cb(f * 0.4))
+                # Stage 2 — two-pass loudnorm (LKFS) + alimiter (True Peak).
+                normalize_audio(tmp_comp, out, lkfs, tp,
+                                lambda f: cb(0.4 + f * 0.5))
+                # Stage 3 — measure the delivered file (LFE excluded by ebur128).
+                cb(0.92)
+                post = analyze_lufs(out)
+                sess["result"] = {
+                    "before": {
+                        "lkfs": round(float(pre["input_i"]), 1),
+                        "tp":   round(float(pre["input_tp"]), 1),
+                        "lra":  round(float(pre["input_lra"]), 1),
+                    },
+                    "after": {
+                        "lkfs": round(float(post["input_i"]), 1),
+                        "tp":   round(float(post["input_tp"]), 1),
+                        "lra":  round(float(post["input_lra"]), 1),
+                    },
+                    "target": {"lkfs": lkfs, "tp": tp, "lra": lra},
+                }
+                sess["out"] = str(out)
+                sess["progress"] = 100.0
+                sess["status"] = "done"
+            except Exception as exc:
+                sess["error"] = str(exc)
+                sess["status"] = "error"
+            finally:
+                tmp_comp.unlink(missing_ok=True)
 
         threading.Thread(target=work, daemon=True).start()
         self._json(resp)

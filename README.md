@@ -10,6 +10,7 @@ A local web application for professional loudness normalization of WAV audio fil
 - **Per-channel scope** — analyze and normalize the full mix or a single channel (L, R, C, LFE, Ls, Rs, …)
 - **Platform presets** — one-click targets for Spotify, Apple Music, Netflix, EBU R128, CALM Act, and dialogue standards
 - **Custom targets** — enter any Integrated LUFS (−70 to 0) and True Peak (−30 to 0 dBTP)
+- **Dynamic Control (broadcast 5.1)** — a separate tab for 5.1 deliveries: compresses L/R/C/Ls/Rs individually (LFE bypassed, as in ITU-R BS.1770), then normalizes to the LKFS target and limits True Peak. Includes ITU-R BS.1770-3 and EBU R128 presets, editable compressor settings (ratio, threshold, attack, release, knee), an LRA pass/fail indicator and before/after measurements
 - **Two export modes** — interleaved multi-channel WAV or per-channel mono WAVs in a ZIP
 - **Two-pass render** — measurement pass via loudnorm, gain pass via linear volume + alimiter safety net
 - **Real-time progress bar** — rendered in a background thread; the UI polls and auto-downloads when done
@@ -154,7 +155,8 @@ The app recognises all standard ffmpeg layouts: mono, stereo, 2.1, 3.0, 4.0, qua
 | `POST` | `/api/analyze` | Upload WAV body; returns LUFS measurements and file metadata |
 | `POST` | `/api/reanalyze` | Re-measure an already-uploaded file on a different channel scope |
 | `POST` | `/api/render` | Start a background render job |
-| `GET` | `/api/progress` | Poll render progress `{status, progress, ready}` |
+| `POST` | `/api/render_dynamic` | Start a broadcast 5.1 render (compression + LKFS normalization + True Peak limiting) |
+| `GET` | `/api/progress` | Poll render progress `{status, progress, ready, result}` |
 | `GET` | `/api/download` | Download the normalized file |
 
 ---
@@ -181,7 +183,7 @@ npm test
 
 The tests expect the app at `http://localhost:8765`, so make sure nothing else is using that port before starting the server.
 
-Eight tests cover page load, all five program presets, the export mode selector, and the initial render button state.
+Thirteen tests cover page load, all five program presets, the export mode selector and the initial render button state, plus the Dynamic Control tab: panel switching, both delivery presets, default compressor settings and the initial Render Broadcast button state.
 
 ---
 
